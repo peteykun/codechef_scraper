@@ -12,7 +12,7 @@ the default filename of the resulting database is `default.db`.
 Exponential backoff is used with a multiplier of 1 second and a maximum wait time of 10 seconds
 for any requests for each page requested, up to 10 requests.
 
-# Dependecies
+# Dependencies
 
 Install the following packages:
 
