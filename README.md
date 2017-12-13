@@ -16,4 +16,4 @@ for any requests for each page requested, up to 10 requests.
 
 Install the following packages:
 
-    $ pip install --user retrying requests
+    $ pip install --user retrying requests bs4

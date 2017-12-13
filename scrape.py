@@ -1,4 +1,4 @@
-from HTMLParser import HTMLParser
+from bs4 import BeautifulSoup
 from retrying import retry
 import requests
 import argparse
@@ -52,54 +52,44 @@ def retrying_get(url, params=None):
     return r
 
 r = retrying_get('https://www.codechef.com/status/%s' % args.problem, params=payload)
+soup = BeautifulSoup(r.text, 'html.parser')
 
-class ResultListParser(HTMLParser):
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == 'tr' and attrs.get('class') == '\\"kol\\"':
-            self.active = True
-            self.results.append([])
-        if self.active and tag == 'span':
-            self.results[-1].append(attrs['title'])
-        if tag == 'div' and attrs.get('class') == 'pageinfo':
-            self.grab_pages = True
-    def handle_endtag(self, tag):
-        if self.active and tag == 'tr':
-            self.active = False
-    def handle_data(self, data):
-        if self.active and data != 'View':
-            self.results[-1].append(data)
-        if self.grab_pages:
-            self.pages = int(data.split()[-1])
-            self.grab_pages = False
-    def feed(self, data):
-        self.active = False
-        self.results = []
-        self.grab_pages = False
-        self.pages  = None
-        HTMLParser.feed(self, data)
-        return self.results, self.pages
+# Get the number of pages
+try:
+    pages = int(soup.find('div', class_='pageinfo').get_text().split()[-1])
+except AttributeError:
+    pages = 1
 
-rl_parser  = ResultListParser()
-_, pages = rl_parser.feed(r.text)
-
+# For each page
 for page in range(args.start, pages):
-    print 'Page %d/%d' % (page, pages)
-    payload['page'] = page
+    print 'Page %d/%d' % (page + 1, pages)
+    payload['page'] = page + 1
     r = retrying_get('https://www.codechef.com/status/%s' % args.problem, params=payload)
-    results, _   = rl_parser.feed(r.text)
+    soup = BeautifulSoup(r.text, 'html.parser')
 
-    for item in results:
-        print 'Processing', item[0]
-
-        # Fetch the code
+    for item in soup.find_all('tr', class_='\\"kol\\"'):
+        result = [item.find_all('td')[0].get_text(),
+                  item.find_all('td')[1].get_text(),
+                  item.find_all('td')[2].find('a')['title'],
+                  item.find_all('td')[3].find('span')['title'],
+                  item.find_all('td')[4].get_text(),
+                  item.find_all('td')[5].get_text(),
+                  item.find_all('td')[6].get_text(),
+                  args.problem]
+        
+        print 'Processing', result[0]
+        
         try:
-            code = rl_parser.unescape(retrying_get('https://www.codechef.com/viewplaintext/' + item[0]).text[5:-6])
+            # Fetch the code
+            r2 = retrying_get('https://www.codechef.com/viewplaintext/' + result[0])
+            soup2 = BeautifulSoup(r2.text, 'html.parser')
+            result += [soup2.find('pre').get_text()]
         except IOError:
             print 'Giving up'
-
+            continue
+            
         # Insert into the database
-        c.execute("INSERT INTO programs(program_id, datetime, user, result, time, memory, language, problem_code, code)  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", tuple(item + [args.problem, code]))
+        c.execute("INSERT INTO programs(program_id, datetime, user, result, time, memory, language, problem_code, code)  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", tuple(result))
 
     # Write changes to disk at the end of each page
     conn.commit()
